@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Reporte Consumos Semanal y Mensual - Master</title>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+        :root { --p-navy: #152746; --p-muted: #364660; --p-light: #6385B5; --white: #FFFFFF; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; color: var(--p-navy); }
+        .card { @apply bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm transition-all hover:shadow-lg; }
+        .kpi-card { @apply p-6 rounded-3xl bg-white shadow-sm flex flex-col justify-center border-b-4 transition-all; }
+        select { color: #152746 !important; background-color: #FFFFFF; @apply border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-400 shadow-md; }
+        .tab-btn { @apply px-6 py-2 rounded-xl font-bold text-xs transition-all uppercase tracking-widest; }
+        .active-tab { @apply bg-[#6385B5] text-white shadow-lg; }
+        .inactive-tab { @apply bg-slate-200 text-slate-500 hover:bg-slate-300; }
+        .table-tab { @apply px-3 py-1 text-[9px] font-extrabold uppercase tracking-widest transition-all duration-300; }
+        .table-tab-active { @apply text-[#152746] scale-105; }
+        .table-tab-inactive { @apply text-slate-400 hover:text-slate-600; }
+        .tab-divider { @apply w-[1px] h-3 bg-slate-300 mx-1; }
+        .sortable { @apply cursor-pointer hover:bg-slate-700 transition-colors relative pr-8; }
+        .sortable::after { content: '↕'; @apply absolute right-3 opacity-40; font-size: 0.8rem; }
+        thead th { @apply bg-[#152746] text-white px-6 py-5 uppercase text-[10px] tracking-widest font-bold text-center; }
+        .btn-loaded { @apply bg-emerald-500 border-emerald-600 !important; }
+    </style>
+</head>
+<body class="pb-20 text-[#152746]">
+
+    <nav class="bg-[#152746] text-white p-6 sticky top-0 z-50 shadow-2xl border-b border-[#6385B5]">
+        <div class="max-w-7xl mx-auto flex flex-col xl:flex-row justify-between items-center gap-6">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 bg-[#6385B5] rounded-2xl flex items-center justify-center font-black text-2xl text-white shadow-inner">R</div>
+                <h1 class="text-2xl font-black tracking-tighter uppercase leading-none">Reporte <span class="text-[#6385B5] italic">Consumos</span></h1>
+            </div>
+            
+            <div class="flex flex-wrap gap-4 items-center justify-center">
+                <div class="flex flex-col text-center" id="modeToggle">
+                    <span class="text-[9px] font-bold text-slate-400 mb-1 uppercase">Visualización</span>
+                    <div class="flex gap-2 bg-slate-800 p-1 rounded-xl">
+                        <button onclick="setView('semanal')" id="btnSem" class="tab-btn active-tab">Semanal</button>
+                        <button onclick="setView('mensual')" id="btnMen" class="tab-btn inactive-tab">Histórico</button>
+                    </div>
+                </div>
+                <div class="flex flex-col" id="monthFilterContainer">
+                    <span class="text-[9px] font-bold text-slate-400 ml-1 uppercase">Mes</span>
+                    <select id="monthSelector" onchange="updateView()"></select>
+                </div>
+                <div class="flex flex-col">
+                    <span class="text-[9px] font-bold text-slate-400 ml-1 uppercase">Clasificación</span>
+                    <select id="catSelector" onchange="updateView()"></select>
+                </div>
+                <div class="flex gap-2 pt-4">
+                    <input type="file" id="moveIn" class="hidden" accept=".csv">
+                    <label id="lblMoves" for="moveIn" class="bg-[#364660] hover:bg-slate-700 text-white px-4 py-3 rounded-xl text-[9px] font-black cursor-pointer border border-slate-600 uppercase transition-all">1. Movimientos</label>
+                    
+                    <input type="file" id="masterIn" class="hidden" accept=".csv">
+                    <label id="lblMaster" for="masterIn" class="bg-[#6385B5] hover:opacity-90 text-white px-4 py-3 rounded-xl text-[9px] font-black cursor-pointer shadow-lg uppercase transition-all">2. Stock Histórico</label>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-6 mt-10 space-y-10">
+        <div id="dashboard" class="hidden space-y-10">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 text-center">
+                <div class="kpi-card border-[#6385B5]"><span id="lbl1" class="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">---</span><h2 id="val1" class="text-3xl font-black">0.00</h2></div>
+                <div class="kpi-card border-[#364660]"><span id="lbl2" class="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">---</span><h2 id="val2" class="text-3xl font-black">0.00</h2></div>
+                <div class="kpi-card border-slate-200" id="card3"><span id="lbl3" class="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">---</span><h2 id="val3" class="text-3xl font-black">0.00</h2></div>
+                <div class="kpi-card border-slate-200" id="card4">
+                    <span id="lbl4" class="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">---</span>
+                    <h2 id="val4" class="text-xl font-black">---</h2>
+                    <div class="mt-2 pt-2 border-t border-slate-100">
+                        <span id="lblSub4" class="text-[9px] font-bold text-slate-400 uppercase">Dato de apoyo</span>
+                        <p id="valSub4" class="text-sm font-extrabold text-slate-600">0.00</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 id="chartTitle" class="font-bold mb-6 uppercase text-sm tracking-wider flex items-center gap-2">
+                    <div class="w-1.5 h-6 bg-[#6385B5] rounded-full"></div> Evolución Detallada
+                </h3>
+                <div id="chart-main" class="h-96 w-full"></div>
+            </div>
+
+            <div class="card !p-0 overflow-hidden">
+                <div class="p-8 bg-slate-50 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
+                    <h3 class="font-black text-[#152746] text-[11px] uppercase tracking-[0.2em]">Detalle por Clasificación</h3>
+                    <div class="flex items-center bg-slate-200/50 p-1 rounded-full border border-slate-200 shadow-inner">
+                        <button onclick="setTableMode('inv')" id="tabInv" class="table-tab table-tab-active">📦 Inventario</button>
+                        <div class="tab-divider"></div>
+                        <button onclick="setTableMode('for')" id="tabFor" class="table-tab table-tab-inactive">📊 Forecast</button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm" id="mainTable">
+                        <thead><tr id="tableHeaderRow"></tr></thead>
+                        <tbody id="tableBody" class="divide-y divide-slate-100 font-bold text-slate-600"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="empty" class="py-40 card text-center flex flex-col items-center border-4 border-dashed border-slate-200">
+            <h2 id="statusMsg" class="text-3xl font-black text-slate-300 uppercase italic">Esperando archivos...</h2>
+            <p id="statusSubMsg" class="text-slate-400 mt-2 font-medium">Por favor carga ambos archivos CSV para activar el dashboard.</p>
+        </div>
+    </main>
+
+    <script>
+        let MOVES = []; let MASTER = {}; let CURRENT_VIEW = 'semanal'; let TABLE_MODE = 'inv';
+        let TABLE_DATA = []; let SORT_COL = null; let SORT_ASC = false;
+        const P_NAVY = '#152746', P_LIGHT = '#6385B5', P_MUTED = '#364660', P_ROSE = '#f43f5e', P_EMERALD = '#10b981', P_AMBER = '#f59e0b';
+        const monthMap = { 'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06', 'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12' };
+
+        const formatNum = (n) => Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const clean = (t) => t ? t.toString().trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "") : "";
+        const parseNum = (v) => { if (typeof v === 'number') return v; if (!v) return 0; return parseFloat(v.toString().replace(/\s/g, '').replace(/,/g, '.')) || 0; };
+
+        // Función para obtener el número de semana ISO
+        function getISOWeek(date) {
+            const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+            const dayNum = d.getUTCDay() || 7;
+            d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+            const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+            return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        }
+
+        function applyMovesData(res) {
+            const keys = Object.keys(res.data[0] || {});
+            const fK = keys.find(k => clean(k).includes('fecha'));
+            const cK = keys.find(k => clean(k).includes('clasi'));
+            const tK = keys.find(k => clean(k).includes('tonelada'));
+            const dK = keys.find(k => clean(k).includes('documento'));
+
+            MOVES = res.data.filter(r => r[fK]).map(r => {
+                const dP = r[fK].toString().split('/');
+                const dO = new Date(dP[2], dP[1]-1, dP[0]);
+                return {
+                    date: dO,
+                    monthKey: `${dP[1]?.padStart(2, '0')}-${dP[2]?.slice(-2)}`,
+                    monthLabel: dO.toLocaleString('es-ES', { month: 'long', year: 'numeric' }),
+                    cat: r[cK] || "S/C",
+                    tipo: clean(r[dK]).includes('ingreso') ? "ING" : "CONS",
+                    ton: parseNum(r[tK]),
+                    weekNum: getISOWeek(dO)
+                };
+            }).filter(d => !isNaN(d.date.getTime()));
+
+            if(MOVES.length > 0) {
+                document.getElementById('lblMoves').classList.add('btn-loaded');
+                document.getElementById('lblMoves').textContent = "✓ Movimientos OK";
+                checkInit();
+            }
+        }
+
+        function applyMasterData(res) {
+            const keys = Object.keys(res.data[0] || {});
+            const mK = keys.find(k => clean(k).includes('mes'));
+            const cK = keys.find(k => clean(k).includes('clasi'));
+            const sK = keys.find(k => clean(k).includes('stock'));
+            const pK = keys.find(k => clean(k).includes('proy'));
+
+            MASTER = {};
+            res.data.filter(r => r[mK] && r[cK]).forEach(r => {
+                const mOrig = r[mK].toString().toLowerCase().trim();
+                const parts = mOrig.split('-');
+                const mKey = `${monthMap[parts[0]] || parts[0]}-${parts[1]}`;
+                if(!MASTER[r[cK]]) MASTER[r[cK]] = {};
+                MASTER[r[cK]][mKey] = { stock: parseNum(r[sK]), proy: parseNum(r[pK]) };
+            });
+
+            if(Object.keys(MASTER).length > 0) {
+                document.getElementById('lblMaster').classList.add('btn-loaded');
+                document.getElementById('lblMaster').textContent = "✓ Stock OK";
+                checkInit();
+            }
+        }
+
+        document.getElementById('moveIn').addEventListener('change', function(e) {
+            if(!e.target.files[0]) return;
+            Papa.parse(e.target.files[0], { header: true, delimiter: ";", skipEmptyLines: 'greedy', complete: applyMovesData });
+        });
+
+        document.getElementById('masterIn').addEventListener('change', function(e) {
+            if(!e.target.files[0]) return;
+            Papa.parse(e.target.files[0], { header: true, delimiter: ";", skipEmptyLines: 'greedy', complete: applyMasterData });
+        });
+
+        function loadDefaultCsvs() {
+            Promise.all([
+                fetch('./PLANTILLA CONSUMOS HISTÓRICO.csv').then(r => {
+                    if (!r.ok) throw new Error('No se pudo cargar movimientos');
+                    return r.text();
+                }),
+                fetch('./STOCK FINAL HISTÓRICO_FINAL.csv').then(r => {
+                    if (!r.ok) throw new Error('No se pudo cargar stock');
+                    return r.text();
+                })
+            ]).then(([movesText, masterText]) => {
+                Papa.parse(movesText, { header: true, delimiter: ';', skipEmptyLines: 'greedy', complete: applyMovesData });
+                Papa.parse(masterText, { header: true, delimiter: ';', skipEmptyLines: 'greedy', complete: applyMasterData });
+            }).catch(() => {
+                console.log('CSV no cargados automáticamente; puede seguir usando subida manual.');
+            });
+        }
+
+        function checkInit() {
+            if (MOVES.length > 0 && Object.keys(MASTER).length > 0) initApp();
+        }
+
+        loadDefaultCsvs();
+
+        function initApp() {
+            const cats = [...new Set([...MOVES.map(d => d.cat), ...Object.keys(MASTER)])].sort();
+            const selCat = document.getElementById('catSelector');
+            selCat.innerHTML = '<option value="ALL">Total Planta</option>';
+            cats.forEach(c => selCat.innerHTML += `<option value="${c}">${c}</option>`);
+
+            const months = [...new Set(MOVES.map(d => d.monthKey))].sort((a,b) => {
+                const [m1, y1] = a.split('-').map(Number); const [m2, y2] = b.split('-').map(Number);
+                return (y1 * 12 + m1) - (y2 * 12 + m2);
+            });
+            const selMonth = document.getElementById('monthSelector');
+            selMonth.innerHTML = '';
+            months.forEach(m => {
+                const example = MOVES.find(x => x.monthKey === m);
+                selMonth.innerHTML += `<option value="${m}">${example ? example.monthLabel : m}</option>`;
+            });
+            selMonth.value = months[months.length - 1];
+
+            document.getElementById('empty').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            updateView();
+        }
+
+        function setView(v) {
+            CURRENT_VIEW = v;
+            document.getElementById('btnSem').className = `tab-btn ${v === 'semanal' ? 'active-tab' : 'inactive-tab'}`;
+            document.getElementById('btnMen').className = `tab-btn ${v === 'mensual' ? 'active-tab' : 'inactive-tab'}`;
+            document.getElementById('monthFilterContainer').style.display = (v === 'semanal') ? 'flex' : 'none';
+            updateView();
+        }
+
+        function setTableMode(m) {
+            TABLE_MODE = m;
+            document.getElementById('tabInv').className = `table-tab ${m === 'inv' ? 'table-tab-active' : 'table-tab-inactive'}`;
+            document.getElementById('tabFor').className = `table-tab ${m === 'for' ? 'table-tab-active' : 'table-tab-inactive'}`;
+            renderTable();
+        }
+
+        function updateView() {
+            const cat = document.getElementById('catSelector').value;
+            const targetMonth = document.getElementById('monthSelector').value;
+            const months = [...new Set(MOVES.map(d => d.monthKey))].sort((a,b) => {
+                const [m1, y1] = a.split('-').map(Number); const [m2, y2] = b.split('-').map(Number);
+                return (y1 * 12 + m1) - (y2 * 12 + m2);
+            });
+
+            const monthlyData = months.map(m => {
+                let r = MOVES.filter(d => d.monthKey === m);
+                if(cat !== "ALL") r = r.filter(x => x.cat === cat);
+                let st = 0, pr = 0;
+                if(cat === "ALL") Object.values(MASTER).forEach(h => { st += (h[m]?.stock || 0); pr += (h[m]?.proy || 0); });
+                else { st = MASTER[cat]?.[m]?.stock || 0; pr = MASTER[cat]?.[m]?.proy || 0; }
+                return { key: m, label: r[0]?.monthLabel || m, ing: r.filter(x => x.tipo === "ING").reduce((a,b)=>a+b.ton, 0), cons: r.filter(x => x.tipo === "CONS").reduce((a,b)=>a+b.ton, 0), stock: st, proy: pr };
+            });
+
+            // LÓGICA DE SEMANAS REALES (DINÁMICA)
+            const currentMoves = MOVES.filter(d => d.monthKey === targetMonth && (cat === "ALL" || d.cat === cat));
+            const weeksInMonth = [...new Set(currentMoves.map(d => d.weekNum))].sort((a,b) => a - b);
+            
+            const weeklyStats = weeksInMonth.map(wn => {
+                const r = currentMoves.filter(d => d.weekNum === wn);
+                return { 
+                    label: `Semana ${wn}`, 
+                    ing: r.filter(x => x.tipo === "ING").reduce((a,b)=>a+b.ton, 0), 
+                    cons: r.filter(x => x.tipo === "CONS").reduce((a,b)=>a+b.ton, 0) 
+                };
+            });
+
+            const mKeyTable = CURRENT_VIEW === 'semanal' ? targetMonth : months[months.length-1];
+            const activeMoves = CURRENT_VIEW === 'semanal' ? MOVES.filter(d => d.monthKey === targetMonth) : MOVES;
+            const uniqueCats = [...new Set([...activeMoves.map(d => d.cat), ...Object.keys(MASTER)])].sort();
+
+            TABLE_DATA = uniqueCats.map(c => {
+                const movesCat = activeMoves.filter(x => x.cat === c);
+                const ing = movesCat.filter(x => x.tipo === "ING").reduce((a,b)=>a+b.ton, 0);
+                const cons = movesCat.filter(x => x.tipo === "CONS").reduce((a,b)=>a+b.ton, 0);
+                const stock = MASTER[c]?.[mKeyTable]?.stock || 0;
+                const proy = MASTER[c]?.[mKeyTable]?.proy || 0;
+                let accuracy = (proy > 0) ? Math.max(0, (1 - (Math.abs(proy - Math.abs(cons)) / proy)) * 100) : (proy === 0 && Math.abs(cons) === 0 ? 100 : 0);
+                return { label: c, ing, cons, stock, proy, accuracy };
+            }).filter(x => x.ing !== 0 || x.cons !== 0 || x.stock !== 0 || x.proy !== 0);
+
+            renderDashboard(monthlyData, weeklyStats, targetMonth);
+        }
+
+        function sortTable(key) {
+            if (SORT_COL === key) SORT_ASC = !SORT_ASC; else { SORT_COL = key; SORT_ASC = false; }
+            TABLE_DATA.sort((a,b) => (Math.abs(a[key]) > Math.abs(b[key]) ? 1 : -1) * (SORT_ASC ? 1 : -1));
+            renderTable();
+        }
+
+        function renderTable() {
+            const header = document.getElementById('tableHeaderRow');
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            if (TABLE_MODE === 'inv') {
+                header.innerHTML = `<th class="px-8 py-5 text-left sortable" onclick="sortTable('label')">Clasificación</th><th class="px-8 py-5 text-right sortable" onclick="sortTable('ing')">Ingresos TM</th><th class="px-8 py-5 text-right sortable" onclick="sortTable('cons')">Consumos TM</th><th class="px-8 py-5 text-right sortable" onclick="sortTable('stock')">Stock Final</th>`;
+                TABLE_DATA.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td class="px-8 py-4">${row.label}</td><td class="px-8 py-4 text-right">${formatNum(row.ing)}</td><td class="px-8 py-4 text-right text-rose-500">${formatNum(row.cons)}</td><td class="px-8 py-4 text-right text-emerald-600">${formatNum(row.stock)}</td>`;
+                    tbody.appendChild(tr);
+                });
+            } else {
+                header.innerHTML = `<th class="px-8 py-5 text-left sortable" onclick="sortTable('label')">Clasificación</th><th class="px-8 py-5 text-right sortable" onclick="sortTable('cons')">Consumo Real</th><th class="px-8 py-5 text-right sortable" onclick="sortTable('proy')">Proyectado</th><th class="px-8 py-5 text-right sortable" onclick="sortTable('accuracy')">Accuracy %</th>`;
+                TABLE_DATA.forEach(row => {
+                    const tr = document.createElement('tr');
+                    const accColor = row.accuracy < 85 ? 'text-rose-500' : (row.accuracy < 95 ? 'text-amber-500' : 'text-emerald-600');
+                    tr.innerHTML = `<td class="px-8 py-4">${row.label}</td><td class="px-8 py-4 text-right">${formatNum(row.cons)}</td><td class="px-8 py-4 text-right text-slate-900 font-extrabold">${formatNum(row.proy)}</td><td class="px-8 py-4 text-right ${accColor}">${row.accuracy.toFixed(1)}%</td>`;
+                    tbody.appendChild(tr);
+                });
+            }
+        }
+
+        function renderDashboard(monthly, weekly, targetMonthKey) {
+            const targetMonthData = monthly.find(m => m.key === targetMonthKey);
+            const targetIndex = monthly.findIndex(m => m.key === targetMonthKey);
+            const effectiveMonths = monthly.slice(Math.max(0, targetIndex - 3), targetIndex);
+            const avgCons = effectiveMonths.length > 0 ? Math.abs(effectiveMonths.reduce((a,b) => a + b.cons, 0) / effectiveMonths.length) : 0;
+            const idealS = avgCons * 3;
+
+            const lay = { margin: {t:10, b:40, l:40, r:10}, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: {family: 'Plus Jakarta Sans', color: P_NAVY}, legend: {orientation: 'h', y: -0.2} };
+
+            if (CURRENT_VIEW === 'semanal') {
+                document.getElementById('lbl1').textContent = "STOCK CIERRE MES";
+                document.getElementById('lbl2').textContent = "INGRESOS MES";
+                document.getElementById('lbl3').textContent = "CONSUMOS MES";
+                document.getElementById('lbl4').textContent = "FORECAST ACCURACY";
+                document.getElementById('lblSub4').textContent = "Total Proyección TM";
+
+                document.getElementById('val1').textContent = formatNum(targetMonthData.stock); 
+                document.getElementById('val1').style.color = P_EMERALD;
+                document.getElementById('val2').textContent = formatNum(targetMonthData.ing);
+                document.getElementById('val3').textContent = formatNum(targetMonthData.cons); 
+                document.getElementById('card3').style.borderBottomColor = P_ROSE;
+
+                const accuracy = (targetMonthData.proy > 0) ? Math.max(0, (1 - (Math.abs(targetMonthData.proy - Math.abs(targetMonthData.cons)) / targetMonthData.proy)) * 100) : 0;
+                document.getElementById('val4').textContent = accuracy.toFixed(1) + "%";
+                document.getElementById('valSub4').textContent = formatNum(targetMonthData.proy);
+                const c = accuracy < 85 ? P_ROSE : (accuracy < 95 ? P_AMBER : P_EMERALD); 
+                document.getElementById('val4').style.color = c; 
+                document.getElementById('card4').style.borderBottomColor = c;
+
+                document.getElementById('chartTitle').textContent = "Flujos por Semana Calendario";
+                Plotly.newPlot('chart-main', [
+                    { x: weekly.map(w => w.label), y: weekly.map(w => Math.abs(w.ing)), name: 'Ingresos', type: 'bar', marker: {color: P_LIGHT} },
+                    { x: weekly.map(w => w.label), y: weekly.map(w => Math.abs(w.cons)), name: 'Consumos', type: 'bar', marker: {color: P_ROSE} }
+                ], { ...lay, barmode: 'group' });
+
+            } else {
+                const latestFull = monthly[monthly.length - 1];
+                document.getElementById('lbl1').textContent = "STOCK ACTUAL REAL";
+                document.getElementById('lbl2').textContent = "CONSUMO PROM. (3M)";
+                document.getElementById('lbl3').textContent = "STOCK IDEAL (3M)";
+                document.getElementById('lbl4').textContent = "ESTADO INVENTARIO";
+                document.getElementById('lblSub4').textContent = "Stock Objetivo TM";
+
+                document.getElementById('val1').textContent = formatNum(latestFull.stock); 
+                document.getElementById('val1').style.color = P_EMERALD;
+                document.getElementById('val2').textContent = formatNum(avgCons);
+                document.getElementById('val3').textContent = formatNum(idealS); 
+                
+                const ratio = idealS > 0 ? latestFull.stock / idealS : 1;
+                let statusText = "OPTIMO";
+                let statusColor = P_EMERALD;
+                if (ratio > 1.05) { statusText = "SOBRE-STOCK"; statusColor = P_ROSE; }
+                else if (ratio < 0.90) { statusText = "BAJO IDEAL"; statusColor = P_AMBER; }
+
+                document.getElementById('val4').textContent = statusText;
+                document.getElementById('valSub4').textContent = formatNum(idealS);
+                document.getElementById('val4').style.color = statusColor; 
+                document.getElementById('card4').style.borderBottomColor = statusColor;
+
+                document.getElementById('chartTitle').textContent = "Evolución Histórica de Inventario";
+                Plotly.newPlot('chart-main', [
+                    { x: monthly.map(m => m.label), y: monthly.map(m => m.stock), name: 'Stock Cierre', type: 'scatter', mode: 'lines+markers', fill: 'tozeroy', fillcolor: 'rgba(99, 133, 181, 0.1)', line: {color: P_LIGHT, width: 4} },
+                    { x: monthly.map(m => m.label), y: Array(monthly.length).fill(idealS), name: 'Stock Ideal', line: {dash: 'dash', color: P_AMBER} }
+                ], lay);
+            }
+            renderTable();
+        }
+    </script>
+</body>
+</html>
